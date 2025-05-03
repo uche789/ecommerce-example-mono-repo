@@ -1,0 +1,19 @@
+from sqlalchemy import ForeignKey, create_engine, JSON, CheckConstraint, String, Integer
+from sqlalchemy.orm import Mapped, mapped_column, DeclarativeBase, sessionmaker
+from pydantic import BaseModel
+from models.base import Base
+
+class Category(Base):
+    __tablename__ = "category"
+
+    category_id = mapped_column(Integer, primary_key=True, autoincrement=True)
+    description = mapped_column(String(500), nullable=False)
+    parent = mapped_column(Integer, nullable=True)
+    image_url = mapped_column(String, nullable=True)
+    slug = mapped_column(String(250), index=True, unique=True)
+
+
+class CategoryPublic(BaseModel):
+    description: str
+    slug: str
+    image_url: str | None
