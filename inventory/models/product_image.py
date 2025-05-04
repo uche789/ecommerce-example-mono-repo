@@ -6,13 +6,12 @@ from models.base import Base
 class ProductImage(Base):
     __tablename__ = "product_image"
 
-    price_id = mapped_column(Integer, primary_key=True, autoincrement=True)
+    product_image_id = mapped_column(Integer, primary_key=True, autoincrement=True)
     product_id = mapped_column(ForeignKey("product.product_id"))
     product_image: Mapped[str]
-    sort_order = mapped_column(Integer, default=1)
-    is_delete: Mapped[bool] = mapped_column(Boolean, default=False)
+    main_image: Mapped[bool] = mapped_column(Boolean, default=False)
 
 class ProductImagePublic(BaseModel):
     product_id: int
     product_image: str
-    sort_order: int
+    main_image: bool = False

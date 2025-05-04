@@ -7,7 +7,8 @@ class Category(Base):
     __tablename__ = "category"
 
     category_id = mapped_column(Integer, primary_key=True, autoincrement=True)
-    description = mapped_column(String(500), nullable=False)
+    category_name = mapped_column(String(250), nullable=False, unique=True)
+    description = mapped_column(String(500), nullable=True)
     parent = mapped_column(Integer, nullable=True)
     image_url = mapped_column(String, nullable=True)
     slug = mapped_column(String(250), index=True, unique=True)
@@ -15,5 +16,5 @@ class Category(Base):
 
 class CategoryPublic(BaseModel):
     description: str
-    slug: str
-    image_url: str | None
+    category_name: str
+    parent: int | None

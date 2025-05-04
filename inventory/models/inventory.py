@@ -11,7 +11,12 @@ class Inventory(Base):
     product_id = mapped_column(ForeignKey("product.product_id"))
     quantity: Mapped[float]
     status: Mapped[str] = mapped_column(String(10))
-    date_updated = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+    # execute lamba function each time a new record is added
+    date_updated = mapped_column(
+        DateTime(timezone=True),
+        default=lambda: datetime.now(timezone.utc),
+        onupdate=lambda: datetime.now(timezone.utc),
+    )
 
     __table_args__ = (
         CheckConstraint(
@@ -23,5 +28,8 @@ class Inventory(Base):
 class InventoryPublic(BaseModel):
     product_id: int
     quantity: int
-    status: str
-    date_updated: str
+    status: str = 'offline'
+
+class UpdateInventory(BaseModel):
+    quantity: int | None
+    status: str | None

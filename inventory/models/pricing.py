@@ -9,3 +9,9 @@ class Pricing(Base):
     pricing_id = mapped_column(Integer, primary_key=True, autoincrement=True)
     product_id = mapped_column(ForeignKey("product.product_id"))
     amount: Mapped[float]
+
+class PricingPublic(BaseModel):
+    product_id: int
+    amount: float
+class UpdatePricing(BaseModel):
+    amount: float

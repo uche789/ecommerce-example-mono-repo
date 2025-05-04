@@ -7,11 +7,12 @@ from models.base import Base
 class Discount(Base):
     __tablename__ = "discount"
 
-    pricing_id = mapped_column(Integer, primary_key=True, autoincrement=True)
+    discount_id = mapped_column(Integer, primary_key=True, autoincrement=True)
     item_id: Mapped[int]
     discount_type: Mapped[str]
     item_type: Mapped[str]
     amount: Mapped[float]
+    starts_on = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
     expires_on = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
 
     __table_args__ = (
@@ -26,8 +27,10 @@ class Discount(Base):
     )
 
 class DiscountPublic(BaseModel):
+    discount_id: int | None
     item_id: int
     discount_type: str
     item_type: str
     amount: float
-    until_date: str
+    starts_on: str
+    expires_on: str
