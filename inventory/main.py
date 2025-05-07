@@ -7,14 +7,15 @@ from fastapi.staticfiles import StaticFiles
 from models import (
     Product, Inventory, Category, CategoryPublic,
     Discount, DiscountPublic, Pricing, ProductImage,
-    PricingPublic, UpdatePricing, InventoryPublic, UpdateInventory
+    PricingPublic, UpdatePricing, InventoryPublic, UpdateInventory,
+    ProductPublic, ProductRequest
 )
 import os
 import shutil
 import uuid;
 from lib.contraints import is_valid_image
 import logging
-from sqlalchemy import update
+from sqlalchemy import update, exists
 
 dm = DataModel()
 
@@ -39,25 +40,54 @@ app = FastAPI(lifespan=lifespan)
 
 app.mount("/static", StaticFiles(directory="static"), name="static")
 
-@app.get("/products")
-def get_app(session: SessionDep, limit = 100, offset = 0):
-    result = session.query(Product).join(Inventory).join(Pricing).limit(limit=limit).offset(offset=offset).all()
+# PRODUCTS #
+
+@app.get("/products", response_model=List[ProductPublic])
+def get_product(session: SessionDep, limit: int = 100, offset: int = 0):
+    result = (
+        session.query(Product)
+        .outerjoin(Product.inventory)
+        .outerjoin(Product.pricing)
+        .limit(limit)
+        .offset(offset)
+        .all()
+    )
     return result
 
-@app.post("/product")
-def add_product(session: SessionDep):
-    session.add()
+@app.post("/products")
+def add_product(session: SessionDep, payload: ProductRequest):
+    db_table = Product(
+        product_name = payload.product_name,
+        description = payload.description,
+        category_id = payload.category_id,
+    )
+    session.add(db_table)
     session.commit()
 
 # INVENTORY #
 
-@app.post("/inventory")
+@app.post("/products/inventory")
 def add_inventory_data(session: SessionDep, payload: InventoryPublic):
-    session.add(payload)
+    product = session.get(Product, payload.product_id)
+    if not product:
+        raise HTTPException(404, detail="Product is not available")
+    
+    found = session.query(exists().where(Inventory.product_id == payload.product_id)).scalar()
+
+    if found:
+        raise HTTPException(400, detail="Product inventory already exists")
+
+    db_payload = Inventory(
+        product_id = payload.product_id,
+        sku = payload.sku,
+        quantity = payload.quantity,
+        status = payload.status
+    )
+    session.add(db_payload)
     session.commit()
 
-@app.patch("/inventory/{inventory_id}")
-def add_product(session: SessionDep, inventory_id: int, payload: UpdateInventory):
+@app.patch("/products/inventory/{inventory_id}")
+def add_inventory(session: SessionDep, inventory_id: int, payload: UpdateInventory):
     result = session.get(Inventory, inventory_id)
 
     if not payload.quantity and not payload.status:
@@ -71,6 +101,9 @@ def add_product(session: SessionDep, inventory_id: int, payload: UpdateInventory
     
     if payload.quantity:
         result.quantity = payload.quantity
+
+    if payload.sku:
+        result.quantity = payload.sku
     
     session.commit()
 
@@ -78,12 +111,21 @@ def add_product(session: SessionDep, inventory_id: int, payload: UpdateInventory
 # PRICING #
 
 @app.post("/pricing")
-def add_product(session: SessionDep, payload: PricingPublic):
-    session.add(payload)
+def add_pricong(session: SessionDep, payload: PricingPublic):
+    product = session.get(Product, payload.product_id)
+    if not product:
+        raise HTTPException(404, detail="Product is not available")
+    
+    db_payload = Pricing(
+        product_id = payload.product_id,
+        amount = payload.amount
+    )
+
+    session.add(db_payload)
     session.commit()
 
 @app.patch("/pricing/{pricing_id}")
-def add_product(session: SessionDep, pricing_id: int, payload: UpdatePricing):
+def update_pricing(session: SessionDep, pricing_id: int, payload: UpdatePricing):
     result = session.get(Pricing, pricing_id)
 
     if not result:
@@ -94,7 +136,7 @@ def add_product(session: SessionDep, pricing_id: int, payload: UpdatePricing):
 
 # PRODUCT IMAGE #
 
-@app.post("/product/{product_id}/images/{product_image_id}/main")
+@app.post("/products/{product_id}/images/{product_image_id}/main")
 def set_product_main_image(session: SessionDep, product_image_id: int, product_id: int):
     result = session.get(ProductImage, product_image_id)
 
@@ -111,7 +153,7 @@ def set_product_main_image(session: SessionDep, product_image_id: int, product_i
     result.main_image = True
     session.commit()
 
-@app.get("/products/{product_id}/images")
+@app.post("/products/{product_id}/images")
 def add_product_images(session: SessionDep, product_id: int, files: list[UploadFile]):
     result = session.get(Product, product_id)
     if not result:
@@ -184,15 +226,22 @@ def get_categories(session: SessionDep):
 
 @app.post('/categories')
 def add_category(session: SessionDep, payload: CategoryPublic):
+    slug = payload.category_name.strip().lower().replace(' ', '-')
+    session.add(payload)
+    session.commit()
+
+@app.patch('/categories/{category_id}')
+def update_category(session: SessionDep, payload: CategoryPublic, category_id: int):
+    db_category = session.get(Category, category_id)
+    if not db_category:
+        raise HTTPException(status_code=404)
+    # db_category.description = payload.
+
     session.add(payload)
     result = session.query(Category).all()
     return result
 
-@app.patch('/categories')
-def update_category(session: SessionDep, payload: CategoryPublic):
-    session.add(payload)
-    result = session.query(Category).all()
-    return result
+#TODO: category image
 
 # DISCOUNTS # 
 

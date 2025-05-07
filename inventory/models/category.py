@@ -1,5 +1,5 @@
-from sqlalchemy import ForeignKey, create_engine, JSON, CheckConstraint, String, Integer
-from sqlalchemy.orm import Mapped, mapped_column, DeclarativeBase, sessionmaker
+from sqlalchemy import String, Integer
+from sqlalchemy.orm import mapped_column, relationship
 from pydantic import BaseModel
 from models.base import Base
 
@@ -13,6 +13,10 @@ class Category(Base):
     image_url = mapped_column(String, nullable=True)
     slug = mapped_column(String(250), index=True, unique=True)
 
+class CategoryPublic(BaseModel):
+    description: str
+    category_name: str
+    parent: int | None
 
 class CategoryPublic(BaseModel):
     description: str
