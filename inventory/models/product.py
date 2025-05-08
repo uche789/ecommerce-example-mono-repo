@@ -1,7 +1,8 @@
 from sqlalchemy import String, Integer
-from sqlalchemy.orm import mapped_column, relationship
+from sqlalchemy.orm import mapped_column, relationship, Mapped
 from pydantic import BaseModel
 from models.base import Base
+from typing import Optional
 
 class Product(Base):
     __tablename__ = "product"
@@ -10,6 +11,7 @@ class Product(Base):
     product_name = mapped_column(String(250), unique=True)
     description = mapped_column(String(500))
     category_id = mapped_column(Integer, nullable=True)
+    slug = mapped_column(Integer, nullable=True)
 
     inventory = relationship("Inventory", uselist=False, back_populates="product")
     pricing = relationship("Pricing", uselist=False, back_populates="product")
@@ -23,11 +25,18 @@ class ProductPublic(BaseModel):
     product_name: str
     description: str
     category_id: int | None
+    slug: str
 
     class Config:
-        orm_mode = True
+        from_attributes = True
 
 class ProductRequest(BaseModel):
     product_name: str
     description: str
     category_id: int | None
+    slug: str
+
+class ProductUpdateRequest(BaseModel):
+    product_name: Optional[str] = None
+    description: Optional[str] = None
+    category_id: Optional[int] = None

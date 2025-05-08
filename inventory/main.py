@@ -6,16 +6,18 @@ from dbsetup import DataModel;
 from fastapi.staticfiles import StaticFiles
 from models import (
     Product, Inventory, Category, CategoryPublic,
-    Discount, DiscountPublic, Pricing, ProductImage,
+    Discount, DiscountPublic, DiscountNewRequest, Pricing, ProductImage,
     PricingPublic, UpdatePricing, InventoryPublic, UpdateInventory,
-    ProductPublic, ProductRequest
+    ProductPublic, ProductRequest, CategoryUpdateRequest, ProductUpdateRequest
 )
 import os
 import shutil
 import uuid;
-from lib.contraints import is_valid_image
+from lib.contraints import is_valid_image, matchesExpression
 import logging
 from sqlalchemy import update, exists
+
+# https://github.com/zhanymkanov/fastapi-best-practices
 
 dm = DataModel()
 
@@ -42,17 +44,27 @@ app.mount("/static", StaticFiles(directory="static"), name="static")
 
 # PRODUCTS #
 
-@app.get("/products", response_model=List[ProductPublic])
+@app.get("/products")
+# @app.get("/products", response_model=List[ProductPublic])
 def get_product(session: SessionDep, limit: int = 100, offset: int = 0):
-    result = (
-        session.query(Product)
+    sqlresults = (
+        session.query(Product, Category, Inventory, Pricing)
         .outerjoin(Product.inventory)
         .outerjoin(Product.pricing)
+        .outerjoin(Category, Category.category_id == Product.category_id)
         .limit(limit)
         .offset(offset)
         .all()
     )
-    return result
+
+    results: List[ProductPublic] = []
+
+    for row in sqlresults:
+        print(row[0].product_name)
+
+        # results.append()
+        # print("Product:", product.product_name)
+    return []
 
 @app.post("/products")
 def add_product(session: SessionDep, payload: ProductRequest):
@@ -60,9 +72,27 @@ def add_product(session: SessionDep, payload: ProductRequest):
         product_name = payload.product_name,
         description = payload.description,
         category_id = payload.category_id,
+        slug = payload.product_name.lower().strip().replace(' ', '-')
     )
     session.add(db_table)
     session.commit()
+
+@app.patch("/products/{product_id}")
+def update_pricing(session: SessionDep, product_id: int, payload: ProductUpdateRequest):
+    result = session.get(Product, product_id)
+
+    if not result:
+        raise HTTPException(status_code=404, detail="Product pricing not found")
+    
+    if payload.category_id:
+        result.category_id = payload.category_id
+    if payload.description:
+        result.description = payload.description
+    if payload.product_name:
+        result.product_name = payload.product_name
+        result.slug = payload.product_name.lower().strip().replace(' ', '-')
+    session.commit()
+
 
 # INVENTORY #
 
@@ -111,7 +141,7 @@ def add_inventory(session: SessionDep, inventory_id: int, payload: UpdateInvento
 # PRICING #
 
 @app.post("/pricing")
-def add_pricong(session: SessionDep, payload: PricingPublic):
+def add_pricing(session: SessionDep, payload: PricingPublic):
     product = session.get(Product, payload.product_id)
     if not product:
         raise HTTPException(404, detail="Product is not available")
@@ -225,9 +255,14 @@ def get_categories(session: SessionDep):
     return result
 
 @app.post('/categories')
-def add_category(session: SessionDep, payload: CategoryPublic):
-    slug = payload.category_name.strip().lower().replace(' ', '-')
-    session.add(payload)
+def add_category(session: SessionDep, payload: CategoryUpdateRequest):
+    db_payload = Category(
+        category_name = payload.category_name,
+        slug = payload.slug,
+        parent = payload.parent,
+        description = payload.description,
+    )
+    session.add(db_payload)
     session.commit()
 
 @app.patch('/categories/{category_id}')
@@ -246,8 +281,26 @@ def update_category(session: SessionDep, payload: CategoryPublic, category_id: i
 # DISCOUNTS # 
 
 @app.post('/discounts')
-def add_discount(session: SessionDep):
-    session.add()
+def add_discount(session: SessionDep, payload: DiscountNewRequest):
+    if matchesExpression(r"\s*\d+\s*,", payload.item_ids):
+        raise HTTPException("Invalid argument: item_ids")
+    
+    if payload.discount_type in ["amount", "percent"]:
+        raise HTTPException("Invalid argument: discount_type")
+    
+    if payload.item_type in ["product", "category"]:
+        raise HTTPException("Invalid argument: item_type")
+
+
+    db_payload = Discount(
+        amount = payload.amount,
+        item_type = payload.item_type,
+        discount_type = payload.discount_type,
+        item_ids = payload.item_ids,
+        expires_on = payload.expires_on,
+        starts_on = payload.starts_on,
+    )
+    session.add(db_payload)
     session.commit()
 
 @app.patch('/discounts')
