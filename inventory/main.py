@@ -17,6 +17,7 @@ import uuid;
 from lib.contraints import is_valid_image, matchesExpression, hasAnyAttributes
 import logging
 from sqlalchemy import update, exists, and_
+import pathlib
 
 # https://github.com/zhanymkanov/fastapi-best-practices
 
@@ -49,7 +50,7 @@ app.mount("/static", StaticFiles(directory="static"), name="static")
 # @app.get("/products", response_model=List[ProductPublic])
 def get_product(session: SessionDep, limit: int = 100, offset: int = 0):
     sqlresults = (
-        session.query(Product, Category, Inventory, Pricing, Discount)
+        session.query(Product, Category, Inventory, Pricing)
         .outerjoin(Product.inventory)
         .outerjoin(Product.pricing)
         .outerjoin(Category, Category.category_id == Product.category_id)
@@ -212,7 +213,7 @@ def add_product_images(session: SessionDep, product_id: int, files: list[UploadF
                 logger.error("Invalid mime type")
                 continue
             
-            new_file_name = uuid()  + '.' + file.content_type
+            new_file_name = uuid.uuid4().__str__() + pathlib.Path(file.filename).suffix
             file_location = os.path.join(IMAGE_DIR, new_file_name)
             with open(file_location, 'wb') as buffer:
                 shutil.copyfileobj(file.file, buffer)
@@ -293,7 +294,41 @@ def update_category(session: SessionDep, payload: CategoryPublic, category_id: i
         db_category.slug = payload.slug
     session.commit()
 
-#TODO: category image
+@app.post("/categories/{category_id}/image")
+def add_category_image(session: SessionDep, category_id: int, file: UploadFile) -> str:
+    category = session.get(Category, category_id)
+    if not category:
+        raise HTTPException(status_code=404, detail="Product not found")
+
+    oldImageUrl = category.image_url
+    new_file_name = uuid.uuid4().__str__() + pathlib.Path(file.filename).suffix
+    file_location = os.path.join(IMAGE_DIR, new_file_name)
+
+
+    try: 
+        if not is_valid_image(file.content_type):
+            logger.error("Invalid mime type")
+            raise HTTPException(status_code=400, detail="Invalid Mime Type")
+        
+        with open(file_location, 'wb') as buffer:
+            shutil.copyfileobj(file.file, buffer)
+            category.image_url = file_location
+            session.commit()
+    except Exception as e:
+        logger.error("Failed to upload product image", e)
+        raise HTTPException(status_code=500)
+    
+    # delete old category image
+    try:
+        if (oldImageUrl and os.path.exists(oldImageUrl)):
+            os.remove(oldImageUrl)
+    except Exception as e:
+        logger.error("Failed to delete old category image", {
+            "category_id": category_id,
+            "category_image": oldImageUrl
+        })
+
+    return file_location
 
 # DISCOUNTS # 
 

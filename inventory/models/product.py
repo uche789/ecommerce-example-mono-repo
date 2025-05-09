@@ -16,10 +16,6 @@ class Product(Base):
     inventory = relationship("Inventory", uselist=False, back_populates="product")
     pricing = relationship("Pricing", uselist=False, back_populates="product")
 
-    # category = relationship("Category", backref="products")
-    # inventory_item = relationship("Inventory")
-    # pricing = relationship("Pricing") 
-
 class ProductInventoryPublic(BaseModel):
     inventory_id: int
     sku: str
@@ -27,12 +23,14 @@ class ProductInventoryPublic(BaseModel):
     status: str = 'offline'
 
 class ProductDiscountPublic(BaseModel):
-    discount_type: str
-    orginal_price: float
     discounted_amount: float
     starts_on: str
     expires_on: str
     active: bool
+
+class ProductPricingPublic(BaseModel):
+    orginal_price: float
+    discount: Optional[ProductDiscountPublic]
 
 class ProductPublic(BaseModel):
     product_id: int
@@ -41,7 +39,7 @@ class ProductPublic(BaseModel):
     category_id: int | None
     slug: str
     inventory: Optional[ProductInventoryPublic]
-    pricing: ProductInventoryPublic
+    pricing: ProductPricingPublic
 
     class Config:
         from_attributes = True
