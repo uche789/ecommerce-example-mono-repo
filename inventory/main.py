@@ -51,7 +51,7 @@ app.mount("/static", StaticFiles(directory="static"), name="static")
 # PRODUCTS #
 
 @app.get("/products", response_model=List[ProductPublic])
-def get_product(session: SessionDep, limit: int = 100, offset: int = 0, category_id: int = None, query = ''):
+def get_products(session: SessionDep, limit: int = 100, offset: int = 0, category_id: int = None, query = ''):
     AliasedDiscount = aliased(Discount)
     subq = (
         session.query(AliasedDiscount)
@@ -145,6 +145,82 @@ def get_product(session: SessionDep, limit: int = 100, offset: int = 0, category
                 main_image=image.main_image,
             ))
     return results
+
+@app.get("/products/{product_id}", response_model=ProductPublic)
+def get_product(session: SessionDep, product_id: int):
+    AliasedDiscount = aliased(Discount)
+    subq = (
+        session.query(AliasedDiscount)
+        .filter(
+            AliasedDiscount.item_id == Product.product_id,
+            AliasedDiscount.active == True
+        )
+        .order_by(AliasedDiscount.discount_id)
+        .limit(1)
+        .correlate(Product)
+        .subquery()
+    )
+
+    sqlresult = (
+        session.query(Product, Category, Inventory, Pricing, AliasedDiscount)
+        .outerjoin(Category, Category.category_id == Product.category_id)
+        .outerjoin(Product.inventory)
+        .outerjoin(Product.pricing)
+        .outerjoin(AliasedDiscount, AliasedDiscount.item_id == Product.product_id)
+        .first()
+    )
+
+    if not sqlresult:
+        return
+
+    discount = None
+    if hasattr(sqlresult[4], 'discount_id'):
+        now = datetime.now(timezone.utc)
+        starts_on = parser.parse(sqlresult[4].starts_on.strftime("%Y-%m-%d %H:%M:%S")).astimezone(timezone.utc)
+        expires_on = parser.parse(sqlresult[4].expires_on.strftime("%Y-%m-%d %H:%M:%S")).astimezone(timezone.utc)
+        isValidDate = starts_on <= now and expires_on > now
+        isValid = bool(sqlresult[4].active) == True and isValidDate
+        if isValid:
+            discount = ProductDiscountPublic(
+                discounted_amount=sqlresult[4].amount,
+                discount_type=sqlresult[4].discount_type,
+            )
+
+    product_pricing = ProductPricingPublic(
+        orginal_price= sqlresult[3].amount if hasattr(sqlresult[3], 'amount') else 0,
+        discount=discount
+    )
+
+    product_category = None
+    if hasattr(sqlresult[1], 'category_name'):
+        product_category = ProductCategory(
+            category_name=sqlresult[1].category_name
+        )
+
+    product_inventory = ProductInventoryPublic(
+        inventory_id=sqlresult[2].quantity if hasattr(sqlresult[2], 'quantity') else None,
+        quantity=sqlresult[2].quantity if hasattr(sqlresult[2], 'quantity') else 0,
+        sku=sqlresult[2].sku if hasattr(sqlresult[2], 'sku') else None,
+        status=sqlresult[2].status if hasattr(sqlresult[2], 'sku') else 'offline',
+    )
+
+    product = ProductPublic(
+        product_id=sqlresult[0].product_id,
+        product_name=sqlresult[0].product_name,
+        description=sqlresult[0].description,
+        slug=sqlresult[0].slug,
+        pricing=product_pricing,
+        category=product_category,
+        inventory=product_inventory
+    )
+
+    images = session.query(ProductImage).filter(ProductImage.product_id == product_id).all()
+    for image in images:
+        product.product_images.append(RelatedProductImage(
+            image_url=image.product_image,
+            main_image=image.main_image,
+        ))
+    return product
 
 @app.post("/products")
 def add_product(session: SessionDep, payload: ProductRequest):
