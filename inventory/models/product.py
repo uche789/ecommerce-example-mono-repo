@@ -20,12 +20,28 @@ class Product(Base):
     # inventory_item = relationship("Inventory")
     # pricing = relationship("Pricing") 
 
+class ProductInventoryPublic(BaseModel):
+    inventory_id: int
+    sku: str
+    quantity: int
+    status: str = 'offline'
+
+class ProductDiscountPublic(BaseModel):
+    discount_type: str
+    orginal_price: float
+    discounted_amount: float
+    starts_on: str
+    expires_on: str
+    active: bool
+
 class ProductPublic(BaseModel):
     product_id: int
     product_name: str
     description: str
     category_id: int | None
     slug: str
+    inventory: Optional[ProductInventoryPublic]
+    pricing: ProductInventoryPublic
 
     class Config:
         from_attributes = True

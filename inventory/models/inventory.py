@@ -28,13 +28,13 @@ class Inventory(Base):
         ),
     )
 
-class InventoryPublic(BaseModel):
+class InventoryNewRequest(BaseModel):
     product_id: int
     sku: str
     quantity: int
     status: str = 'offline'
 
-class UpdateInventory(BaseModel):
+class InventoryUpdateRequest(BaseModel):
     quantity: int | None
     sku: str | None
     status: str | None

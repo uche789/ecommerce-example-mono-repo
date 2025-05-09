@@ -17,3 +17,6 @@ def matchesExpression(pattern, value) -> bool:
     # pattern = r"\s*\d+\s*,"
     matches = re.match(pattern, value)
     return matches != None
+
+def hasAnyAttributes(obj):
+    return bool(obj.__dict__)

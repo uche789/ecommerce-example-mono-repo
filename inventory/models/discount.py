@@ -3,12 +3,13 @@ from datetime import datetime, timezone
 from sqlalchemy.orm import Mapped, mapped_column
 from pydantic import BaseModel
 from models.base import Base
+from typing import Optional
 
 class Discount(Base):
     __tablename__ = "discount"
 
     discount_id = mapped_column(Integer, primary_key=True, autoincrement=True)
-    item_ids: Mapped[str]
+    item_id: Mapped[str]
     discount_type: Mapped[str]
     item_type: Mapped[str]
     amount: Mapped[float]
@@ -29,7 +30,7 @@ class Discount(Base):
 
 class DiscountPublic(BaseModel):
     discount_id: int
-    item_ids: int
+    item_id: int
     discount_type: str
     item_type: str
     amount: float
@@ -37,8 +38,15 @@ class DiscountPublic(BaseModel):
     expires_on: str
     active: bool
 
+class DiscountUpdateRequest(BaseModel):
+    discount_type: Optional[str] = None
+    amount: Optional[float] = None
+    starts_on: Optional[str] = None
+    expires_on: Optional[str] = None
+    active: Optional[bool]
+
 class DiscountNewRequest(BaseModel):
-    item_ids: str | None
+    item_id: int | None
     discount_type: str | None
     item_type: str | None
     amount: float | None

@@ -15,9 +15,16 @@ class Category(Base):
     slug = mapped_column(String(250), nullable=False, unique=True)
 
 class CategoryPublic(BaseModel):
+    category_id: int
+    description: str | None
+    category_name: str
+    parent: int | None
+    slug: str
+
+class CategoryNewRequest(BaseModel):
     description: Optional[str] = None
     category_name: str
-    parent: Optional[str] = None
+    parent: Optional[int] = None
     slug: str
 
 class CategoryUpdateRequest(BaseModel):

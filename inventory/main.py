@@ -7,15 +7,16 @@ from fastapi.staticfiles import StaticFiles
 from models import (
     Product, Inventory, Category, CategoryPublic,
     Discount, DiscountPublic, DiscountNewRequest, Pricing, ProductImage,
-    PricingPublic, UpdatePricing, InventoryPublic, UpdateInventory,
-    ProductPublic, ProductRequest, CategoryUpdateRequest, ProductUpdateRequest
+    PricingPublic, UpdatePricing, InventoryNewRequest, InventoryUpdateRequest,
+    ProductPublic, ProductRequest, CategoryUpdateRequest, ProductUpdateRequest,
+    DiscountUpdateRequest
 )
 import os
 import shutil
 import uuid;
-from lib.contraints import is_valid_image, matchesExpression
+from lib.contraints import is_valid_image, matchesExpression, hasAnyAttributes
 import logging
-from sqlalchemy import update, exists
+from sqlalchemy import update, exists, and_
 
 # https://github.com/zhanymkanov/fastapi-best-practices
 
@@ -48,7 +49,7 @@ app.mount("/static", StaticFiles(directory="static"), name="static")
 # @app.get("/products", response_model=List[ProductPublic])
 def get_product(session: SessionDep, limit: int = 100, offset: int = 0):
     sqlresults = (
-        session.query(Product, Category, Inventory, Pricing)
+        session.query(Product, Category, Inventory, Pricing, Discount)
         .outerjoin(Product.inventory)
         .outerjoin(Product.pricing)
         .outerjoin(Category, Category.category_id == Product.category_id)
@@ -57,10 +58,16 @@ def get_product(session: SessionDep, limit: int = 100, offset: int = 0):
         .all()
     )
 
+
     results: List[ProductPublic] = []
 
     for row in sqlresults:
         print(row[0].product_name)
+        product = ProductPublic(
+            product_id=row[0].product_id,
+            product_name=row[0].product_name,
+            # prod
+        )
 
         # results.append()
         # print("Product:", product.product_name)
@@ -97,7 +104,7 @@ def update_pricing(session: SessionDep, product_id: int, payload: ProductUpdateR
 # INVENTORY #
 
 @app.post("/products/inventory")
-def add_inventory_data(session: SessionDep, payload: InventoryPublic):
+def add_inventory_data(session: SessionDep, payload: InventoryNewRequest):
     product = session.get(Product, payload.product_id)
     if not product:
         raise HTTPException(404, detail="Product is not available")
@@ -117,7 +124,7 @@ def add_inventory_data(session: SessionDep, payload: InventoryPublic):
     session.commit()
 
 @app.patch("/products/inventory/{inventory_id}")
-def add_inventory(session: SessionDep, inventory_id: int, payload: UpdateInventory):
+def add_inventory(session: SessionDep, inventory_id: int, payload: InventoryUpdateRequest):
     result = session.get(Inventory, inventory_id)
 
     if not payload.quantity and not payload.status:
@@ -254,6 +261,12 @@ def get_categories(session: SessionDep):
     result = session.query(Category).all()
     return result
 
+@app.get('/categories/{category_id}')
+def get_categories(session: SessionDep, category_id: int):
+    result = session.get(Category, category_id)
+    # TODO: Add breadcrumbs
+    return result
+
 @app.post('/categories')
 def add_category(session: SessionDep, payload: CategoryUpdateRequest):
     db_payload = Category(
@@ -270,11 +283,15 @@ def update_category(session: SessionDep, payload: CategoryPublic, category_id: i
     db_category = session.get(Category, category_id)
     if not db_category:
         raise HTTPException(status_code=404)
-    # db_category.description = payload.
-
-    session.add(payload)
-    result = session.query(Category).all()
-    return result
+    if payload.description:
+        db_category.description = payload.description
+    if hasattr(payload.parent):
+        db_category.parent = payload.parent
+    if payload.category_name:
+        db_category.category_name = payload.category_name
+    if payload.slug:
+        db_category.slug = payload.slug
+    session.commit()
 
 #TODO: category image
 
@@ -282,9 +299,18 @@ def update_category(session: SessionDep, payload: CategoryPublic, category_id: i
 
 @app.post('/discounts')
 def add_discount(session: SessionDep, payload: DiscountNewRequest):
-    if matchesExpression(r"\s*\d+\s*,", payload.item_ids):
-        raise HTTPException("Invalid argument: item_ids")
+    hasActiveDiscount = (
+            session.query(Discount)
+            .where(
+                Discount.item_id == payload.item_id,
+                Discount.item_type == payload.discount_type,
+                Discount.active == True
+            )
+        )
     
+    if hasActiveDiscount:
+        raise HTTPException("An active discount already exisits for the item")
+
     if payload.discount_type in ["amount", "percent"]:
         raise HTTPException("Invalid argument: discount_type")
     
@@ -296,15 +322,28 @@ def add_discount(session: SessionDep, payload: DiscountNewRequest):
         amount = payload.amount,
         item_type = payload.item_type,
         discount_type = payload.discount_type,
-        item_ids = payload.item_ids,
+        item_id = payload.item_id,
         expires_on = payload.expires_on,
         starts_on = payload.starts_on,
     )
     session.add(db_payload)
     session.commit()
 
-@app.patch('/discounts')
-def add_discount(session: SessionDep, payload: DiscountPublic):
-    session.query(Discount).where(Discount.item_id == payload.item_id, Discount.item_type == payload.discount_type)
-    session.add()
+@app.patch('/discounts/{discount_id}')
+def add_discount(session: SessionDep, discount_id: int, payload: DiscountUpdateRequest):
+    discount = session.get(Discount,discount_id)
+    if not discount:
+        raise HTTPException(404, detail="Item discount not found")
+    
+    if hasAnyAttributes(payload) == False:
+        return
+    
+    if payload.active != None:
+        discount.active = payload.active
+    if payload.amount:
+        discount.amount = payload.amount
+    if payload.expires_on:
+        discount.expires_on = payload.expires_on
+    if payload.starts_on:
+        discount.starts_on = payload.starts_on
     session.commit()
