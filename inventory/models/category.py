@@ -8,7 +8,8 @@ class Category(Base):
     __tablename__ = "category"
 
     category_id = mapped_column(Integer, primary_key=True, autoincrement=True)
-    category_name = mapped_column(String(250), index=True, nullable=False, unique=True)
+    category_name = mapped_column(String(250), index=True, nullable=False)
+    category_key = mapped_column(String(250), index=True, nullable=False, unique=True)
     description = mapped_column(String(500), nullable=True)
     parent = mapped_column(Integer, nullable=True)
     image_url = mapped_column(String, nullable=True)
@@ -17,6 +18,7 @@ class Category(Base):
 class CategoryPublic(BaseModel):
     category_id: int
     description: str | None
+    category_key: str
     category_name: str
     parent: int | None
     slug: str
@@ -24,11 +26,13 @@ class CategoryPublic(BaseModel):
 class CategoryNewRequest(BaseModel):
     description: Optional[str] = None
     category_name: str
+    category_key: str
     parent: Optional[int] = None
     slug: str
 
 class CategoryUpdateRequest(BaseModel):
     description: Optional[str] = None
     category_name: Optional[str] = None
+    category_key: Optional[str] = None
     parent: Optional[int] = None
     slug: Optional[str] = None

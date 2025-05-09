@@ -1,15 +1,16 @@
 from typing import Annotated, List
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, aliased
 from fastapi import Depends, FastAPI, File, HTTPException, Response, UploadFile, Request, Response
 from contextlib import asynccontextmanager
 from dbsetup import DataModel;
 from fastapi.staticfiles import StaticFiles
 from models import (
     Product, Inventory, Category, CategoryPublic,
-    Discount, DiscountPublic, DiscountNewRequest, Pricing, ProductImage,
+    Discount, DiscountNewRequest, Pricing, ProductImage,
     PricingPublic, UpdatePricing, InventoryNewRequest, InventoryUpdateRequest,
     ProductPublic, ProductRequest, CategoryUpdateRequest, ProductUpdateRequest,
-    DiscountUpdateRequest
+    DiscountUpdateRequest, ProductPricingPublic, ProductCategory, ProductDiscountPublic,
+    ProductInventoryPublic, RelatedProductImage
 )
 import os
 import shutil
@@ -46,33 +47,94 @@ app.mount("/static", StaticFiles(directory="static"), name="static")
 
 # PRODUCTS #
 
-@app.get("/products")
-# @app.get("/products", response_model=List[ProductPublic])
-def get_product(session: SessionDep, limit: int = 100, offset: int = 0):
-    sqlresults = (
-        session.query(Product, Category, Inventory, Pricing)
+@app.get("/products", response_model=List[ProductPublic])
+def get_product(session: SessionDep, limit: int = 100, offset: int = 0, category_id: int = None, query = ''):
+    AliasedDiscount = aliased(Discount)
+    subq = (
+        session.query(AliasedDiscount)
+        .filter(
+            AliasedDiscount.item_id == Product.product_id,
+            AliasedDiscount.active == True
+        )
+        .order_by(AliasedDiscount.discount_id)
+        .limit(1)
+        .correlate(Product)
+        .subquery()
+    )
+
+    sqlquery = session.query(Product, Category, Inventory, Pricing, AliasedDiscount)
+
+    if query:
+        sqlquery = sqlquery.filter(Product.product_name.ilike(f"%{query}%"))
+
+    if category_id:
+        sqlquery = sqlquery.join(Category, and_(
+            Category.category_id == category_id,
+            Category.category_id == Product.category_id,
+        ))
+    else:
+       sqlquery = sqlquery.outerjoin(Category, Category.category_id == Product.category_id)
+
+    sqlquery = (
+        sqlquery
         .outerjoin(Product.inventory)
         .outerjoin(Product.pricing)
-        .outerjoin(Category, Category.category_id == Product.category_id)
+    )
+
+    sqlresults =  (
+        sqlquery.outerjoin(AliasedDiscount, AliasedDiscount.item_id == Product.product_id)
         .limit(limit)
         .offset(offset)
         .all()
     )
 
-
     results: List[ProductPublic] = []
 
     for row in sqlresults:
-        print(row[0].product_name)
+        discount = None
+        if hasattr(row[4], 'discount_id'):
+            discount = ProductDiscountPublic(
+                discounted_amount=row[4].amount
+            )
+
+        product_pricing = ProductPricingPublic(
+            orginal_price= row[3].amount if hasattr(row[3], 'amount') else 0,
+            discount=discount
+        )
+
+        product_category = None
+        if hasattr(row[1], 'category_name'):
+            product_category = ProductCategory(
+                category_name=row[1].category_name
+            )
+
+        product_inventory = ProductInventoryPublic(
+            inventory_id=row[2].quantity if hasattr(row[2], 'quantity') else None,
+            quantity=row[2].quantity if hasattr(row[2], 'quantity') else 0,
+            sku=row[2].sku if hasattr(row[2], 'sku') else None,
+            status=row[2].status if hasattr(row[2], 'sku') else 'offline',
+        )
+
         product = ProductPublic(
             product_id=row[0].product_id,
             product_name=row[0].product_name,
-            # prod
+            description=row[0].description,
+            slug=row[0].slug,
+            pricing=product_pricing,
+            category=product_category,
+            inventory=product_inventory
         )
 
-        # results.append()
-        # print("Product:", product.product_name)
-    return []
+        results.append(product)
+
+    for product in results:
+        images = session.query(ProductImage).filter(ProductImage.product_id == product.product_id).all()
+        for image in images:
+            product.product_images.append(RelatedProductImage(
+                image_url=image.product_image,
+                main_image=image.main_image,
+            ))
+    return results
 
 @app.post("/products")
 def add_product(session: SessionDep, payload: ProductRequest):
@@ -173,6 +235,11 @@ def update_pricing(session: SessionDep, pricing_id: int, payload: UpdatePricing)
     session.commit()
 
 # PRODUCT IMAGE #
+
+@app.get("/products/{product_id}/images")
+def set_product_main_image(session: SessionDep, product_id: int):
+    result = session.query(ProductImage).filter(ProductImage.product_id == product_id).all()
+    return result
 
 @app.post("/products/{product_id}/images/{product_image_id}/main")
 def set_product_main_image(session: SessionDep, product_image_id: int, product_id: int):
@@ -275,23 +342,26 @@ def add_category(session: SessionDep, payload: CategoryUpdateRequest):
         slug = payload.slug,
         parent = payload.parent,
         description = payload.description,
+        category_key = payload.category_key,
     )
     session.add(db_payload)
     session.commit()
 
 @app.patch('/categories/{category_id}')
-def update_category(session: SessionDep, payload: CategoryPublic, category_id: int):
+def update_category(session: SessionDep, payload: CategoryUpdateRequest, category_id: int):
     db_category = session.get(Category, category_id)
     if not db_category:
         raise HTTPException(status_code=404)
     if payload.description:
         db_category.description = payload.description
-    if hasattr(payload.parent):
+    if hasattr(payload, 'parent'):
         db_category.parent = payload.parent
     if payload.category_name:
         db_category.category_name = payload.category_name
     if payload.slug:
         db_category.slug = payload.slug
+    if payload.category_key:
+        db_category.category_key = payload.category_key
     session.commit()
 
 @app.post("/categories/{category_id}/image")
@@ -303,7 +373,6 @@ def add_category_image(session: SessionDep, category_id: int, file: UploadFile) 
     oldImageUrl = category.image_url
     new_file_name = uuid.uuid4().__str__() + pathlib.Path(file.filename).suffix
     file_location = os.path.join(IMAGE_DIR, new_file_name)
-
 
     try: 
         if not is_valid_image(file.content_type):
