@@ -24,9 +24,7 @@ class ProductInventoryPublic(BaseModel):
 
 class ProductDiscountPublic(BaseModel):
     discounted_amount: float
-    starts_on: str
-    expires_on: str
-    active: bool
+    discount_type: str
 
 class ProductCategory(BaseModel):
     category_name: str

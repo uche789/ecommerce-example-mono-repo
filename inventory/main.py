@@ -1,11 +1,11 @@
 from typing import Annotated, List
 from sqlalchemy.orm import Session, aliased
-from fastapi import Depends, FastAPI, File, HTTPException, Response, UploadFile, Request, Response
+from fastapi import Depends, FastAPI, HTTPException, Response, UploadFile, Response
 from contextlib import asynccontextmanager
 from dbsetup import DataModel;
 from fastapi.staticfiles import StaticFiles
 from models import (
-    Product, Inventory, Category, CategoryPublic,
+    Product, Inventory, Category,
     Discount, DiscountNewRequest, Pricing, ProductImage,
     PricingPublic, UpdatePricing, InventoryNewRequest, InventoryUpdateRequest,
     ProductPublic, ProductRequest, CategoryUpdateRequest, ProductUpdateRequest,
@@ -15,10 +15,13 @@ from models import (
 import os
 import shutil
 import uuid;
-from lib.contraints import is_valid_image, matchesExpression, hasAnyAttributes
+from lib.contraints import is_valid_image, hasAnyAttributes
 import logging
 from sqlalchemy import update, exists, and_
 import pathlib
+from datetime import datetime, timezone
+from dateutil import parser
+
 
 # https://github.com/zhanymkanov/fastapi-best-practices
 
@@ -93,9 +96,16 @@ def get_product(session: SessionDep, limit: int = 100, offset: int = 0, category
     for row in sqlresults:
         discount = None
         if hasattr(row[4], 'discount_id'):
-            discount = ProductDiscountPublic(
-                discounted_amount=row[4].amount
-            )
+            now = datetime.now(timezone.utc)
+            starts_on = parser.parse(row[4].starts_on.strftime("%Y-%m-%d %H:%M:%S")).astimezone(timezone.utc)
+            expires_on = parser.parse(row[4].expires_on.strftime("%Y-%m-%d %H:%M:%S")).astimezone(timezone.utc)
+            isValidDate = starts_on <= now and expires_on > now
+            isValid = bool(row[4].active) == True and isValidDate
+            if isValid:
+                discount = ProductDiscountPublic(
+                    discounted_amount=row[4].amount,
+                    discount_type=row[4].discount_type,
+                )
 
         product_pricing = ProductPricingPublic(
             orginal_price= row[3].amount if hasattr(row[3], 'amount') else 0,
@@ -292,7 +302,7 @@ def add_product_images(session: SessionDep, product_id: int, files: list[UploadF
                 session.commit()
             files_result["saved"].append(file.filename)
         except Exception as e:
-            logger.error("Failed to upload product image", e)
+            logger.error(f"Failed to upload product image {e}")
             files_result["skipped"].append(file.filename)
     
     return files_result
@@ -317,7 +327,7 @@ def delete_product_image(session: SessionDep, product_id: int, product_image_id:
             session.commit()
             return Response(status_code=200)
     except Exception as e:
-        logger.error("Failed to delete product image", e)
+        logger.error(f"Failed to delete product image {e}")
         raise HTTPException(status_code=500, detail='Failed to delete product image')
 
     return Response(status_code=204)
@@ -384,7 +394,7 @@ def add_category_image(session: SessionDep, category_id: int, file: UploadFile) 
             category.image_url = file_location
             session.commit()
     except Exception as e:
-        logger.error("Failed to upload product image", e)
+        logger.error(f"Failed to upload product image: {e}")
         raise HTTPException(status_code=500)
     
     # delete old category image
@@ -392,14 +402,30 @@ def add_category_image(session: SessionDep, category_id: int, file: UploadFile) 
         if (oldImageUrl and os.path.exists(oldImageUrl)):
             os.remove(oldImageUrl)
     except Exception as e:
-        logger.error("Failed to delete old category image", {
+        logger.error("Failed to delete old category image", extra={
             "category_id": category_id,
-            "category_image": oldImageUrl
+            "category_image": oldImageUrl,
+            "error": str(e)
         })
 
     return file_location
 
 # DISCOUNTS # 
+
+@app.get('/discounts/{item_category}/{item_id}')
+def add_discount(session: SessionDep, item_category: str, item_id: int):
+    if not item_category in ["product", "category"]:
+        raise HTTPException(status_code=400, detail="Invalid argument: item_type")
+    
+    results = (
+            session.query(Discount)
+            .where(
+                Discount.item_id == item_id,
+                Discount.item_type == item_category,
+            ).all()
+        )
+    return results
+
 
 @app.post('/discounts')
 def add_discount(session: SessionDep, payload: DiscountNewRequest):
@@ -409,45 +435,59 @@ def add_discount(session: SessionDep, payload: DiscountNewRequest):
                 Discount.item_id == payload.item_id,
                 Discount.item_type == payload.discount_type,
                 Discount.active == True
-            )
+            ).first()
         )
     
     if hasActiveDiscount:
-        raise HTTPException("An active discount already exisits for the item")
+        raise HTTPException(status_code=500, detail="An active discount already exisits for the item")
 
-    if payload.discount_type in ["amount", "percent"]:
-        raise HTTPException("Invalid argument: discount_type")
+    if not payload.discount_type in ["amount", "percent"]:
+        raise HTTPException(status_code=400, detail="Invalid argument: discount_type")
     
-    if payload.item_type in ["product", "category"]:
-        raise HTTPException("Invalid argument: item_type")
+    if not payload.item_type in ["product", "category"]:
+        raise HTTPException(status_code=400, detail="Invalid argument: item_type")
 
+    if payload.amount < 1:
+        raise HTTPException(status_code=400, detail="Invalid argument: amount should be greater than 0")
 
-    db_payload = Discount(
-        amount = payload.amount,
-        item_type = payload.item_type,
-        discount_type = payload.discount_type,
-        item_id = payload.item_id,
-        expires_on = payload.expires_on,
-        starts_on = payload.starts_on,
-    )
-    session.add(db_payload)
-    session.commit()
+    try:
+        db_payload = Discount(
+            amount = payload.amount,
+            item_type = payload.item_type,
+            discount_type = payload.discount_type,
+            item_id = payload.item_id,
+            expires_on = parser.parse(payload.expires_on).astimezone(timezone.utc),
+            starts_on = parser.parse(payload.starts_on).astimezone(timezone.utc),
+        )
+        session.add(db_payload)
+        session.commit()
+    except Exception as e:
+        logger.error(f"Cannot create discount object: {e}")
+        raise HTTPException(status_code=400, detail="Invalid arguments")
 
 @app.patch('/discounts/{discount_id}')
-def add_discount(session: SessionDep, discount_id: int, payload: DiscountUpdateRequest):
+def update_discount(session: SessionDep, discount_id: int, payload: DiscountUpdateRequest):
     discount = session.get(Discount,discount_id)
     if not discount:
         raise HTTPException(404, detail="Item discount not found")
-    
+
     if hasAnyAttributes(payload) == False:
         return
     
-    if payload.active != None:
-        discount.active = payload.active
-    if payload.amount:
-        discount.amount = payload.amount
-    if payload.expires_on:
-        discount.expires_on = payload.expires_on
-    if payload.starts_on:
-        discount.starts_on = payload.starts_on
-    session.commit()
+    try:
+        if payload.active != None:
+            discount.active = payload.active
+        if payload.discount_type and payload.amount:
+            if not payload.discount_type in ["amount", "percent"]:
+                raise HTTPException(status_code=400, detail="Invalid argument: discount_type")
+            if payload.amount < 1:
+                raise HTTPException(status_code=400, detail="Invalid argument: amount should be greater than 0")
+            discount.discount_type = payload.discount_type
+            discount.amount = payload.amount
+        if payload.expires_on:
+            discount.expires_on = parser.parse(payload.expires_on).astimezone(timezone.utc)
+        if payload.starts_on:
+            discount.starts_on = parser.parse(payload.starts_on).astimezone(timezone.utc)
+        session.commit()
+    except Exception as e:
+        raise HTTPException(500, detail="Failed to update due server error or invalid arguments")

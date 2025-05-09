@@ -1,5 +1,5 @@
 from sqlalchemy import Boolean, CheckConstraint, Integer, DateTime
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 from sqlalchemy.orm import Mapped, mapped_column
 from pydantic import BaseModel
 from models.base import Base
@@ -14,7 +14,7 @@ class Discount(Base):
     item_type: Mapped[str]
     amount: Mapped[float]
     starts_on = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
-    expires_on = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+    expires_on = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc) + timedelta(days=30))
     active: Mapped[bool] = mapped_column(Boolean, default=False)
 
     __table_args__ = (
@@ -43,7 +43,7 @@ class DiscountUpdateRequest(BaseModel):
     amount: Optional[float] = None
     starts_on: Optional[str] = None
     expires_on: Optional[str] = None
-    active: Optional[bool]
+    active: Optional[bool] = None
 
 class DiscountNewRequest(BaseModel):
     item_id: int | None
