@@ -2,7 +2,7 @@ from typing import Annotated, List
 from sqlalchemy.orm import Session, aliased
 from fastapi import Depends, FastAPI, HTTPException, Response, UploadFile, Response
 from contextlib import asynccontextmanager
-from dbsetup import DataModel;
+from dbsetup import DataModel
 from fastapi.staticfiles import StaticFiles
 from models import (
     Product, Inventory, Category,
@@ -15,26 +15,23 @@ from models import (
 import os
 import shutil
 import uuid;
-from lib.contraints import is_valid_image, hasAnyAttributes
+from lib import is_valid_image, hasAnyAttributes, get_logger
 import logging
 from sqlalchemy import update, exists, and_
 import pathlib
 from datetime import datetime, timezone
 from dateutil import parser
+from dotenv import load_dotenv
 
+load_dotenv()
+
+# print(os.environ.get('API_KEY'))
 
 # https://github.com/zhanymkanov/fastapi-best-practices
+# https://fastapi.tiangolo.com/tutorial/bigger-applications/#import-the-apirouter
 
 dm = DataModel()
-
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
-    handlers=[
-        logging.FileHandler("app.log") # Log to file
-    ]
-)
-logger = logging.getLogger('inventory.logger')
+logger = get_logger()
 
 IMAGE_DIR = 'static/images'
 
@@ -146,7 +143,7 @@ def get_products(session: SessionDep, limit: int = 100, offset: int = 0, categor
             ))
     return results
 
-@app.get("/products/{product_id}", response_model=ProductPublic)
+@app.get("/products/{product_id}", response_model=ProductPublic|None)
 def get_product(session: SessionDep, product_id: int):
     AliasedDiscount = aliased(Discount)
     subq = (
@@ -163,6 +160,7 @@ def get_product(session: SessionDep, product_id: int):
 
     sqlresult = (
         session.query(Product, Category, Inventory, Pricing, AliasedDiscount)
+        .filter(Product.product_id == product_id)
         .outerjoin(Category, Category.category_id == Product.category_id)
         .outerjoin(Product.inventory)
         .outerjoin(Product.pricing)

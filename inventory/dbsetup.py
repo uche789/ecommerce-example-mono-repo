@@ -1,8 +1,17 @@
+from typing import Annotated
+from fastapi import Depends
 from sqlalchemy import create_engine
-from sqlalchemy.orm import sessionmaker
+from sqlalchemy.orm import sessionmaker, Session
 from models import Base
 
 class DataModel:
+    _instance = None
+
+    def __new__(cls):
+        if not cls._instance:
+            cls._instance = super().__new__(cls)
+        return cls._instance
+
     def __init__(self):
         sqlite_file_name = "database.db"
         sqlite_url = f"sqlite:///{sqlite_file_name}"
@@ -13,7 +22,6 @@ class DataModel:
         Base.metadata.create_all(self.engine)
 
     def get_session(self):
-        Session = sessionmaker(bind=self.engine)
-        session = Session()
+        session_maker = sessionmaker(bind=self.engine)
+        session = session_maker()
         yield session
-    
